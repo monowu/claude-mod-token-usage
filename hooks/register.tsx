@@ -1,4 +1,4 @@
-// token-usage v0.2.0: narrow layout, token deltas (history lives in $.state)
+// token-usage v0.2.1: narrow layout, token deltas (history lives in $.state)
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
