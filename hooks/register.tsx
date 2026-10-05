@@ -7,13 +7,15 @@ const usage = atom({ plugin: 'token-usage', key: 'usage' } as const, null)
 const history = atom({ plugin: 'token-usage', key: 'history' } as const, [])
 const isHidden = atom({ plugin: 'token-usage', key: 'isHidden' } as const, false)
 let frame = 0
+// U+FE0E asks for text presentation, so the desktop app doesn't draw ⚡ as a color emoji
+const T = '\uFE0E'
 const weather = (pct: number, f: number) => {
   const i = f % 4
   if (pct >= 92) return i % 2 === 0 ? '↯ ' : '  '
-  if (pct < 40) return ['☀ ', '☼ ', '☀ ', '☼ '][i]
-  if (pct < 65) return ['☁  ', ' ☁ ', '  ☁', ' ☁ '][i]
-  if (pct < 85) return ['☂ ·', '☂ ˙', '☂ ·', '☂ .'][i]
-  return i % 2 === 0 ? '⛈ ' : '⚡ '
+  if (pct < 40) return [`☀${T} `, '☼ ', `☀${T} `, '☼ '][i]
+  if (pct < 65) return [`☁${T}  `, ` ☁${T} `, `  ☁${T}`, ` ☁${T} `][i]
+  if (pct < 85) return [`☂${T} ·`, `☂${T} ˙`, `☂${T} ·`, `☂${T} .`][i]
+  return i % 2 === 0 ? `⛈${T} ` : `⚡${T} `
 }
 const tone = (pct: number) => (pct >= 85 ? '#ef4444' : pct >= 65 ? '#f97316' : pct >= 40 ? '#eab308' : '#22c55e')
 
