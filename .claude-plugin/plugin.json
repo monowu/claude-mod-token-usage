@@ -1,1 +1,1 @@
-{ "name": "token-usage", "version": "0.2.1", "author": { "name": "monowu" }, "description": "Pane showing remaining token usage: context window, rate-limit windows, cost", "types": "./types/index.d.ts" }
+{ "name": "token-usage", "version": "0.3.0", "author": { "name": "monowu" }, "description": "Pane showing remaining token usage: context window, rate-limit windows, cost", "types": "./types/index.d.ts" }

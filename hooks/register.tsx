@@ -1,4 +1,4 @@
-// token-usage v0.2.1: narrow layout, token deltas (history lives in $.state)
+// token-usage v0.3.0: quota pace delta, narrow layout, token deltas (history lives in $.state)
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
@@ -25,9 +25,24 @@ const fmt = (n: number) =>
     : n >= 1000
       ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
       : String(n)
+// Pace: how far the window's used share is ahead (+) or behind (-) the share of its time already elapsed.
+const WINDOW_MS: Record<string, number> = { five_hour: 5 * 3600_000, seven_day: 7 * 86_400_000 }
+const pace = (r: any) => {
+  const len = WINDOW_MS[r.kind]
+  if (!len || !r.resetsAt) return undefined
+  const left = new Date(r.resetsAt).getTime() - Date.now()
+  if (Number.isNaN(left)) return undefined
+  const elapsed = Math.min(100, Math.max(0, (1 - left / len) * 100))
+  return { elapsed, delta: r.percentUsed - elapsed }
+}
+const paceMark = (d: number) => (d >= 3 ? '⇡' : d <= -3 ? '⇣' : '≈')
+const paceColor = (d: number) => (d >= 3 ? '#ef4444' : d <= -3 ? '#22c55e' : '#9ca3af')
 const statusText = (u: any) => {
-  const worst = Math.min(100, ...u.rateLimits.map((r: any) => 100 - r.percentUsed))
-  return `tokens: ${u.rateLimits.length ? `${Math.round(worst)}% left` : `ctx ${Math.round(u.context.percent ?? 0)}%`}`
+  const rl = u.rateLimits as any[]
+  const worst = rl.length ? rl.reduce((a, b) => (b.percentUsed > a.percentUsed ? b : a)) : undefined
+  if (!worst) return `tokens: ctx ${Math.round(u.context.percent ?? 0)}%`
+  const p = pace(worst)
+  return `tokens: ${Math.round(Math.max(0, 100 - worst.percentUsed))}% left${p ? ` ${paceMark(p.delta)}` : ''}`
 }
 const label = (kind: string) =>
   kind === 'five_hour' ? '5-hour window' : kind === 'seven_day' ? '7-day window' : kind
@@ -220,6 +235,15 @@ export const register: Register = on => {
                 <Text color="#22c55e"> · {Math.round(100 - r.percentUsed)}% left</Text>
               </Box>
               {r.resetsAt && <Text dimColor>  resets {new Date(r.resetsAt).toLocaleString()}</Text>}
+              {pace(r) && (
+                <Box>
+                  <Text dimColor>  pace </Text>
+                  <Text color={paceColor(pace(r)!.delta)} bold>
+                    {paceMark(pace(r)!.delta)} {pace(r)!.delta >= 0 ? '+' : '-'}{Math.abs(Math.round(pace(r)!.delta))}%
+                  </Text>
+                  <Text dimColor> ({Math.round(pace(r)!.elapsed)}% of the window elapsed)</Text>
+                </Box>
+              )}
             </Box>
           ))}
         </Box>
