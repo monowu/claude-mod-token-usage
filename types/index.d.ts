@@ -1,7 +1,9 @@
-import type { SessionUsage } from 'claude-code'
-
 declare module 'claude-code' {
   interface PluginState {
-    'token-usage': { usage: SessionUsage | null; history: number[]; isHidden: boolean }
+    'token-usage': {
+      usage: unknown
+      history: { tokens: number; percent: number }[]
+      isHidden: boolean
+    }
   }
 }

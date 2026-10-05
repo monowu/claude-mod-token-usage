@@ -1,3 +1,4 @@
+// token-usage v0.2.0: narrow layout, token deltas
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
@@ -16,7 +17,12 @@ const weather = (pct: number, f: number) => {
 }
 const tone = (pct: number) => (pct >= 85 ? '#ef4444' : pct >= 65 ? '#f97316' : pct >= 40 ? '#eab308' : '#22c55e')
 
-const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
+const fmt = (n: number) =>
+  n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`
+    : n >= 1000
+      ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k`
+      : String(n)
 const statusText = (u: any) => {
   const worst = Math.min(100, ...u.rateLimits.map((r: any) => 100 - r.percentUsed))
   return `tokens: ${u.rateLimits.length ? `${Math.round(worst)}% left` : `ctx ${Math.round(u.context.percent ?? 0)}%`}`
@@ -46,14 +52,18 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
       const u = await $.session.usage()
-      await update($, history, list => [...list, Math.round(u.context.percent ?? 0)].slice(-12))
+      const tokens = u.context.tokens ?? 0
+      const percent = Math.round(u.context.percent ?? 0)
+      if (tokens > 0) {
+        await update($, history, list => [...list.filter(x => typeof x === 'object'), { tokens, percent }].slice(-12))
+      }
     }
     return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const u = await read($, usage)
-    const hist = await read($, history)
+    const hist = (await read($, history)).filter(x => typeof x === 'object')
     if (e.props.hasSurvey || (await read($, isHidden))) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     if (!u || u.context.tokens === undefined)
@@ -67,7 +77,8 @@ export const register: Register = on => {
     const shown = hist
     const tokens = u.context.tokens
     const icon = weather(pct, frame)
-    const delta = shown.length > 1 ? shown[shown.length - 1] - shown[shown.length - 2] : 0
+    const delta = shown.length > 1 ? shown[shown.length - 1].tokens - shown[shown.length - 2].tokens : 0
+    const isWide = (e.props.bodyColumns ?? 80) >= 60
     return (
       <Box>
         <Box width={4}>
@@ -79,12 +90,15 @@ export const register: Register = on => {
           {pct}%
         </Text>
         <Text dimColor> · {fmt(tokens)} / {fmt(u.context.window)} </Text>
-        {shown.map(x => (
-          <Text color={tone(x)}>■ </Text>
-        ))}
-        <Text color={delta > 0 ? '#f97316' : '#22c55e'}>
-          {delta === 0 ? '' : ` ${delta > 0 ? '▲ +' : '▼ '}${delta}%`}
-        </Text>
+        {isWide &&
+          shown.map(x => (
+            <Text color={tone(x.percent)}>■ </Text>
+          ))}
+        {isWide && (
+          <Text color={delta > 0 ? '#f97316' : '#22c55e'}>
+            {delta === 0 ? '' : ` ${delta > 0 ? '▲ +' : '▼ '}${fmt(Math.abs(delta))}`}
+          </Text>
+        )}
         <Text color="#ef4444" bold>
           {pct >= 92 ? ' · Compact soon' : ''}
         </Text>
