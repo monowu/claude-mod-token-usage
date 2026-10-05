@@ -63,21 +63,36 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // After a compaction the next response hasn't come yet, so context.tokens is empty;
+  // record the post-compaction size so the band drops to it instead of going blank.
+  on('session.compact', async ($, e, next) => {
+    const r = await next(e)
+    if (!e.agentId && e.trigger !== 'precompute' && r.messages) {
+      const { window } = (await $.session.usage()).context
+      const tokens = r.tokensAfter ?? 0
+      const percent = window ? Math.round((tokens / window) * 100) : 0
+      await update($, history, list => [...list.filter(x => typeof x === 'object'), { tokens, percent }].slice(-12))
+    }
+    return r
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const u = await read($, usage)
     const hist = (await read($, history)).filter(x => typeof x === 'object')
     if (e.props.hasSurvey || (await read($, isHidden))) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
-    if (!u || u.context.tokens === undefined)
+    const last = hist[hist.length - 1]
+    if (!u || (u.context.tokens === undefined && !last))
       return (
         <Box>
           <Text dimColor>token-usage: waiting for data (send a message) </Text>
           <Button key="details" label="Details" onPress={() => $.ui.open({ id: PANE, title: 'Token usage' })} />
         </Box>
       )
-    const pct = Math.round(u.context.percent ?? 0)
+    const isLive = u.context.tokens !== undefined
+    const pct = isLive ? Math.round(u.context.percent ?? 0) : last.percent
     const shown = hist
-    const tokens = u.context.tokens
+    const tokens = isLive ? u.context.tokens : last.tokens
     const icon = weather(pct, frame)
     const delta = shown.length > 1 ? shown[shown.length - 1].tokens - shown[shown.length - 2].tokens : 0
     const isWide = (e.props.bodyColumns ?? 80) >= 60
