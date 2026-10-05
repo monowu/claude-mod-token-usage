@@ -55,12 +55,15 @@ claude --plugin-dir ./claude-mod-token-usage
 ```json
 {
   "env": {
-    "CLAUDE_CODE_PLUGIN_DIRS": "/絕對路徑/claude-mod-token-usage"
+    "CLAUDE_CODE_PLUGIN_DIRS": "/絕對路徑/claude-mod-token-usage",
+    "CLAUDE_CODE_PLUGIN_DIR_WATCH": "1"
   }
 }
 ```
 
 存檔後**開新的 session** 才會生效。
+
+`CLAUDE_CODE_PLUGIN_DIR_WATCH` 是選填的，開發時才需要：設了之後，改動 plugin 資料夾內的檔案會自動重載，不必開新 session（已在桌面版實測）。
 
 ## 使用
 
