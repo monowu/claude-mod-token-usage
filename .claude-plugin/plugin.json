@@ -1,0 +1,1 @@
+{ "name": "token-usage", "version": "0.1.0", "description": "Pane showing remaining token usage: context window, rate-limit windows, cost", "types": "./types/index.d.ts" }
