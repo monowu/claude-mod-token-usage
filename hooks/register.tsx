@@ -1,4 +1,4 @@
-// token-usage v0.3.0: quota pace delta, narrow layout, token deltas (history lives in $.state)
+// token-usage v0.4.0: compact button, 5h quota view, quota pace delta, token deltas (history lives in $.state)
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
@@ -6,6 +6,7 @@ const PANE = 'token-usage'
 const usage = atom({ plugin: 'token-usage', key: 'usage' } as const, null)
 const history = atom({ plugin: 'token-usage', key: 'history' } as const, [])
 const isHidden = atom({ plugin: 'token-usage', key: 'isHidden' } as const, false)
+const showQuota = atom({ plugin: 'token-usage', key: 'showQuota' } as const, false)
 let frame = 0
 // U+FE0E asks for text presentation, so the desktop app doesn't draw ⚡ as a color emoji
 const T = '\uFE0E'
@@ -44,8 +45,35 @@ const statusText = (u: any) => {
   const p = pace(worst)
   return `tokens: ${Math.round(Math.max(0, 100 - worst.percentUsed))}% left${p ? ` ${paceMark(p.delta)}` : ''}`
 }
+const fmtLeft = (ms: number) => {
+  const m = Math.max(0, Math.round(ms / 60_000))
+  return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m` : `${m}m`
+}
 const label = (kind: string) =>
   kind === 'five_hour' ? '5-hour window' : kind === 'seven_day' ? '7-day window' : kind
+
+// $.session.compact is refused in a headless host (the desktop app), where compaction only runs
+// inside a turn as a /compact prompt, and a plugin-submitted prompt never arrives there. So the
+// fallback types /compact into the prompt box for the person to send.
+let isCompacting = false
+const errText = (err: unknown) => (err instanceof Error ? err.message : String(err))
+async function compactNow($: any) {
+  if (isCompacting) return
+  isCompacting = true
+  try {
+    try {
+      const r = await $.session.compact()
+      $.ui.toast(r.skip ? `Compact skipped: ${r.skip}` : 'Compacted')
+    } catch {
+      const f = await $.prompt.fill({ text: '/compact' })
+      $.ui.toast(f.isFilled ? 'Typed /compact in the prompt box: press Enter to run it' : 'Type /compact to compact')
+    }
+  } catch (err) {
+    $.ui.toast(`Compact failed: ${errText(err)}`)
+  } finally {
+    isCompacting = false
+  }
+}
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -87,6 +115,8 @@ export const register: Register = on => {
       const tokens = r.tokensAfter ?? 0
       const percent = window ? Math.round((tokens / window) * 100) : 0
       await update($, history, list => [...list.filter(x => typeof x === 'object'), { tokens, percent }].slice(-12))
+      // The cached snapshot still holds the pre-compaction size; drop it so the band reads the entry above.
+      await update($, usage, cur => (cur ? { ...cur, context: { ...cur.context, tokens: undefined, percent: undefined } } : cur))
     }
     return r
   })
@@ -95,22 +125,86 @@ export const register: Register = on => {
     const u = await read($, usage)
     const hist = (await read($, history)).filter(x => typeof x === 'object')
     if (e.props.hasSurvey || (await read($, isHidden))) return next(e)
+    const isQuotaView = await read($, showQuota)
     const { Box, Button, Text } = $.ui.resolve(e)
     const last = hist[hist.length - 1]
+    const details = <Button key="details" label="Details" onPress={() => $.ui.open({ id: PANE, title: 'Token usage' })} />
     if (!u || (u.context.tokens === undefined && !last))
       return (
         <Box>
-          <Text dimColor>token-usage: waiting for data (send a message) </Text>
-          <Button key="details" label="Details" onPress={() => $.ui.open({ id: PANE, title: 'Token usage' })} />
+          <Text dimColor>token-usage: waiting for data (send a message)</Text>
+          <Box flexGrow={1} justifyContent="flex-end">
+            {details}
+          </Box>
         </Box>
       )
+    const cols = e.props.bodyColumns ?? 80
+    // Compact belongs to the context view, next to the readout; the view switch, Details and Hide are pinned right.
+    const compact = <Button key="compact" label="Compact" onPress={() => compactNow($)} />
+    const pinned = (
+      <Box flexGrow={1} justifyContent="flex-end">
+        <Button
+          key="view"
+          label={isQuotaView ? 'Context' : '5h quota'}
+          onPress={() => update($, showQuota, shown => !shown)}
+        />
+        <Text> </Text>
+        {details}
+        <Text> </Text>
+        <Button key="hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
+      </Box>
+    )
+
+    if (isQuotaView) {
+      const fh = (u.rateLimits as any[]).find(r => r.kind === 'five_hour')
+      if (!fh)
+        return (
+          <Box>
+            <Text color="#60a5fa" bold>5h </Text>
+            <Text dimColor>no quota data (not a subscription, or no response yet) </Text>
+            {pinned}
+          </Box>
+        )
+      const used = Math.round(fh.percentUsed)
+      const p = pace(fh)
+      const left = fh.resetsAt ? new Date(fh.resetsAt).getTime() - Date.now() : NaN
+      const filled = Math.min(10, Math.round(fh.percentUsed / 10))
+      const isFull = cols >= 110
+      const isWide = cols >= 60
+      return (
+        <Box>
+          <Text color="#60a5fa" bold>5h </Text>
+          {isWide && <Text color={tone(fh.percentUsed)}>{'█'.repeat(filled)}</Text>}
+          {isWide && <Text dimColor>{'░'.repeat(10 - filled)} </Text>}
+          <Text color={tone(fh.percentUsed)} bold>
+            {used}%
+          </Text>
+          {isWide && <Text dimColor> used · </Text>}
+          {isWide && <Text color="#22c55e">{Math.max(0, 100 - used)}% left</Text>}
+          {p && (
+            <Text color={paceColor(p.delta)} bold>
+              {' '}
+              {paceMark(p.delta)} {p.delta >= 0 ? '+' : '-'}
+              {Math.abs(Math.round(p.delta))}%
+            </Text>
+          )}
+          {p && isFull && <Text dimColor> ({Math.round(p.elapsed)}% of the window elapsed)</Text>}
+          {!Number.isNaN(left) && <Text dimColor> · resets in {fmtLeft(left)}</Text>}
+          {isFull && fh.resetsAt && (
+            <Text dimColor> ({new Date(fh.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})</Text>
+          )}
+          {pinned}
+        </Box>
+      )
+    }
+
     const isLive = u.context.tokens !== undefined
     const pct = isLive ? Math.round(u.context.percent ?? 0) : last.percent
     const shown = hist
     const tokens = isLive ? u.context.tokens : last.tokens
     const icon = weather(pct, frame)
     const delta = shown.length > 1 ? shown[shown.length - 1].tokens - shown[shown.length - 2].tokens : 0
-    const isWide = (e.props.bodyColumns ?? 80) >= 60
+    const isWide = cols >= 60
     return (
       <Box>
         <Box width={4}>
@@ -134,10 +228,9 @@ export const register: Register = on => {
         <Text color="#ef4444" bold>
           {pct >= 92 ? ' · Compact soon' : ''}
         </Text>
-        <Text> </Text>
-        <Button key="details" label="Details" onPress={() => $.ui.open({ id: PANE, title: 'Token usage' })} />
-        <Text> </Text>
-        <Button key="hide" label="Hide" onPress={() => update($, isHidden, () => true)} />
+        <Text>   </Text>
+        {compact}
+        {pinned}
       </Box>
     )
   })

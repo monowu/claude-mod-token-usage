@@ -4,6 +4,7 @@ declare module 'claude-code' {
       usage: unknown
       history: { tokens: number; percent: number }[]
       isHidden: boolean
+      showQuota: boolean
     }
   }
 }
